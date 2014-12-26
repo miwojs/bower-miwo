@@ -1,0 +1,50 @@
+body,
+html {
+  margin: 0;
+  padding: 0;
+}
+/* viewport */
+.miwo-ct {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+.miwo-viewport {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+.miwo-viewport.rendered > .miwo-ct > .miwo-layout-item {
+  -webkit-transition: all 0.5s;
+  -moz-transition: all 0.5s;
+  -ms-transition: all 0.5s;
+  -o-transition: all 0.5s;
+}
+/* layouts */
+.miwo-layout-absolute > .miwo-layout-item {
+  position: absolute;
+  overflow: hidden;
+}
+.miwo-layout-absolute > .miwo-layout-item > .miwo-ct {
+  overflow: auto;
+}
+/* utils */
+.miwo-overlayed {
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+.miwo-overlay {
+  position: absolute;
+  left: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  opacity: 0;
+  display: "none";
+  -webkit-transition: all 0.3s;
+  -moz-transition: all 0.3s;
+  -ms-transition: all 0.3s;
+  -o-transition: all 0.3s;
+}

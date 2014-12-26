@@ -1,0 +1,22 @@
+{
+	"name": "miwo",
+	"description": "MVC framework in CoffeeScript with Dependency Injection",
+	"version": "0.0.3",
+	"keywords": ["framework", "mvc", "coffeescript"],
+	"authors": [
+		"Dusan Kmet <morlokdk@gmail.com>"
+	],
+	"main": [
+		"css/miwo.css",
+		"css/miwo.min.css",
+		"js/miwo.js",
+		"js/miwo.min.js",
+		"less/miwo.less",
+		"less/mixins.less"
+	],
+	"ignore": [
+	],
+	"dependencies": {
+		"mootools-core": "latest"
+	}
+}
