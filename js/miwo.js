@@ -364,9 +364,6 @@ MiwoExtension = (function(_super) {
       service = _ref[name];
       injector.setGlobal(name, service);
     }
-    injector.define('translator', Translator, (function(_this) {
-      return function(service) {};
-    })(this));
     injector.define('http', RequestManager, (function(_this) {
       return function(service) {
         var plugin, _ref1;
@@ -435,9 +432,11 @@ module.exports = Configurator;
 
 
 },{"../di/InjectorFactory":20}],4:[function(require,module,exports){
-var Configurator, Miwo;
+var Configurator, Miwo, Translator;
 
 Configurator = require('./Configurator');
+
+Translator = require('../locale/Translator');
 
 Miwo = (function() {
   Miwo.service = function(name, service) {
@@ -475,7 +474,7 @@ Miwo = (function() {
 
   Miwo.prototype.application = Miwo.service('application');
 
-  Miwo.prototype.translator = Miwo.service('translator');
+  Miwo.prototype.translator = null;
 
   Miwo.prototype.injector = null;
 
@@ -488,6 +487,8 @@ Miwo = (function() {
       };
     })(this));
     this.extensions = {};
+    this.translator = new Translator();
+    return;
   }
 
   Miwo.prototype.ready = function(callback) {
@@ -500,7 +501,7 @@ Miwo = (function() {
 
   Miwo.prototype.require = function(file) {
     var data, e;
-    data = miwo.http.read(file + "?t=" + (new Date().getTime()));
+    data = miwo.http.read(this.baseUrl + file + "?t=" + (new Date().getTime()));
     try {
       eval(data);
     } catch (_error) {
@@ -509,16 +510,52 @@ Miwo = (function() {
     }
   };
 
+  Miwo.prototype.redirect = function(code, params) {
+    this.application.redirect(code, params);
+  };
+
   Miwo.prototype.get = function(id) {
     return this.componentMgr.get(id);
   };
 
-  Miwo.prototype.select = function(selector) {
-    return this.componentSelector.select(selector);
+  Miwo.prototype.async = function(callback) {
+    return setTimeout((function(_this) {
+      return function() {
+        callback();
+      };
+    })(this), 1);
   };
 
-  Miwo.prototype.selectAll = function(selector) {
-    return this.componentSelector.selectAll(selector);
+  Miwo.prototype.query = function(selector) {
+    var component, result, _i, _len, _ref;
+    _ref = this.componentMgr.roots;
+    for (_i = 0, _len = _ref.length; _i < _len; _i++) {
+      component = _ref[_i];
+      if (component.isContainer) {
+        result = this.componentSelector.query(selector, component);
+        if (result) {
+          return result;
+        }
+      } else if (component.is(selector)) {
+        return component;
+      }
+    }
+    return null;
+  };
+
+  Miwo.prototype.queryAll = function(selector) {
+    var component, results, _i, _len, _ref;
+    results = [];
+    _ref = this.componentMgr.roots;
+    for (_i = 0, _len = _ref.length; _i < _len; _i++) {
+      component = _ref[_i];
+      if (component.isContainer) {
+        results.append(this.componentSelector.queryAll(selector, component));
+      } else if (component.is(selector)) {
+        results.push(component);
+      }
+    }
+    return results;
   };
 
   Miwo.prototype.service = function(name) {
@@ -551,7 +588,7 @@ Miwo = (function() {
   Miwo.prototype.setInjector = function(injector) {
     var name, service, _ref;
     this.injector = injector;
-    this.baseUrl = injector.params.baseUrl;
+    this.injector.set('translator', this.translator);
     _ref = injector.globals;
     for (name in _ref) {
       service = _ref[name];
@@ -561,6 +598,9 @@ Miwo = (function() {
 
   Miwo.prototype.init = function(onInit) {
     var configurator, injector;
+    if (this.injector) {
+      return this.injector;
+    }
     configurator = this.createConfigurator();
     if (onInit) {
       onInit(configurator);
@@ -576,10 +616,11 @@ Miwo = (function() {
 module.exports = new Miwo;
 
 
-},{"./Configurator":3}],5:[function(require,module,exports){
+},{"../locale/Translator":36,"./Configurator":3}],5:[function(require,module,exports){
 var Component, MiwoObject,
   __hasProp = {}.hasOwnProperty,
-  __extends = function(child, parent) { for (var key in parent) { if (__hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; };
+  __extends = function(child, parent) { for (var key in parent) { if (__hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
+  __slice = [].slice;
 
 MiwoObject = require('../core/Object');
 
@@ -594,9 +635,9 @@ Component = (function(_super) {
 
   Component.prototype.name = null;
 
-  Component.prototype.width = null;
+  Component.prototype.width = void 0;
 
-  Component.prototype.height = null;
+  Component.prototype.height = void 0;
 
   Component.prototype.top = null;
 
@@ -658,6 +699,8 @@ Component = (function(_super) {
 
   Component.prototype.role = null;
 
+  Component.prototype.plugins = null;
+
   Component.prototype._isGeneratedId = false;
 
   Component.prototype.zIndexMgr = null;
@@ -665,6 +708,7 @@ Component = (function(_super) {
   Component.prototype.componentMgr = null;
 
   function Component(config) {
+    this.plugins = {};
     this.beforeInit();
     if (!this.calledBeforeInit) {
       throw new Error("In component " + this + " you forgot call super::beforeInit()");
@@ -682,6 +726,7 @@ Component = (function(_super) {
     if (!this.calledAfterInit) {
       throw new Error("In component " + this + " you forgot call super::afterInit()");
     }
+    this.callPlugins('init', this);
     return;
   }
 
@@ -729,9 +774,14 @@ Component = (function(_super) {
   };
 
   Component.prototype.setId = function(id) {
+    var oldId;
     this._isGeneratedId = false;
-    this.id = id;
-    this.el.set("id", id);
+    oldId = this.id;
+    if (this.id !== id) {
+      this.id = id;
+      this.el.set("id", id);
+      this.emit('idchange', this, id, oldId);
+    }
   };
 
   Component.prototype.getName = function() {
@@ -746,16 +796,21 @@ Component = (function(_super) {
     return this.contentEl || this.el;
   };
 
+  Component.prototype.setContentEl = function(el) {
+    this.contentEl = el;
+  };
+
   Component.prototype.getFocusEl = function() {
     return this.focusEl;
   };
 
-  Component.prototype.setEl = function(el) {
-    this.el = el;
-    if (this.contentEl) {
-      this.contentEl.inject(el);
-    }
-  };
+
+  /* not save method
+     setEl: (el) ->
+  		@el = el
+  		@contentEl.inject(el) if @contentEl
+  		return
+   */
 
   Component.prototype.setParentEl = function(el, position) {
     this.parentEl = (position === "after" || position === "before" ? el.getParent() : el);
@@ -798,14 +853,36 @@ Component = (function(_super) {
     return this.zIndexMgr;
   };
 
+  Component.prototype.setActive = function(active, newActive) {
+    this.emit((active ? "activated" : "deactivated"), this);
+  };
+
   Component.prototype.setDisabled = function(disabled) {
     this.disabled = disabled;
     this.emit("disabled", this, disabled);
+    this.getFocusEl().set('tabindex', -disabled);
   };
 
-  Component.prototype.setFocus = function() {
+  Component.prototype.setFocus = function(silent) {
+    if (this.disabled) {
+      return;
+    }
     this.focus = true;
     this.getFocusEl().setFocus();
+    if (!silent) {
+      this.emit('focus', this);
+    }
+  };
+
+  Component.prototype.blur = function(silent) {
+    if (this.disabled) {
+      return;
+    }
+    this.focus = false;
+    this.getFocusEl().blur();
+    if (!silent) {
+      this.emit('blur', this);
+    }
   };
 
   Component.prototype.isFocusable = function() {
@@ -818,10 +895,6 @@ Component = (function(_super) {
     } else {
       return this.scrollable;
     }
-  };
-
-  Component.prototype.isXtype = function(xtype) {
-    return this.xtype === xtype;
   };
 
   Component.prototype.setParent = function(parent, name) {
@@ -840,23 +913,29 @@ Component = (function(_super) {
     if (parent !== null) {
       this.container = parent;
       this.attachedContainer(this.container);
+      this.emit('attached', this, parent);
     } else {
       this.detachedContainer(this.container);
+      this.emit('detached', this);
       this.container = null;
     }
     return this;
   };
 
-  Component.prototype.getParent = function() {
-    return this.container;
-  };
-
-  Component.prototype.up = function(selector) {
-    return miwo.componentSelector.selectParent(this, selector);
-  };
-
   Component.prototype.is = function(selector) {
     return miwo.componentSelector.is(this, selector);
+  };
+
+  Component.prototype.isXtype = function(xtype) {
+    return this.xtype === xtype;
+  };
+
+  Component.prototype.getParent = function(selector) {
+    if (selector) {
+      return miwo.componentSelector.queryParent(this, selector);
+    } else {
+      return this.container;
+    }
   };
 
   Component.prototype.nextSibling = function() {
@@ -870,6 +949,44 @@ Component = (function(_super) {
   Component.prototype.attachedContainer = function(parent) {};
 
   Component.prototype.detachedContainer = function(parent) {};
+
+  Component.prototype.installPlugin = function(name, plugin) {
+    if (this.plugins[name]) {
+      throw new Error("Plugin " + name + " already installed in component " + this);
+    }
+    this.plugins[name] = plugin;
+  };
+
+  Component.prototype.uninstallPlugin = function(name) {
+    if (!this.plugins[name]) {
+      return;
+    }
+    this.plugins[name].destroy();
+    delete this.plugins[name];
+  };
+
+  Component.prototype.getPlugin = function(name) {
+    if (!this.plugins[name]) {
+      throw new Error("Plugin " + name + " is not installed in component " + this);
+    }
+    return this.plugins[name];
+  };
+
+  Component.prototype.hasPlugin = function(name) {
+    return this.plugins[name] !== void 0;
+  };
+
+  Component.prototype.callPlugins = function() {
+    var args, method, name, plugin, _ref;
+    method = arguments[0], args = 2 <= arguments.length ? __slice.call(arguments, 1) : [];
+    _ref = this.plugins;
+    for (name in _ref) {
+      plugin = _ref[name];
+      if (plugin[method]) {
+        plugin[method].apply(plugin, args);
+      }
+    }
+  };
 
   Component.prototype.hasTemplate = function() {
     return this.template !== null;
@@ -905,7 +1022,7 @@ Component = (function(_super) {
 
   Component.prototype.render = function(el, position) {
     var contentEl;
-    if (!el && this.renderTo) {
+    if (this.renderTo) {
       el = this.renderTo;
     }
     if (this.rendered) {
@@ -923,13 +1040,35 @@ Component = (function(_super) {
     if (!this.calledBeforeRender) {
       throw new Error("In component " + this + " you forgot call super::beforeRender()");
     }
+    this.callPlugins('beforeRender', this);
     contentEl = this.getElement('[miwo-reference="contentEl"]');
     if (contentEl) {
       this.contentEl = contentEl;
     }
+    this.drawComponent();
+  };
+
+  Component.prototype.replace = function(target) {
+    target = target || $(this.id);
+    if (target) {
+      this.render(target, 'replace');
+    }
+  };
+
+  Component.prototype.redraw = function() {
+    if (this.contentEl) {
+      this.contentEl.empty();
+    } else {
+      this.el.empty();
+    }
+    this.drawComponent();
+  };
+
+  Component.prototype.drawComponent = function() {
     this.rendering = true;
     this.emit("render", this, this.el);
     this.doRender();
+    this.callPlugins('doRender', this);
     this.getElements("[miwo-reference]").each((function(_this) {
       return function(el) {
         _this[el.getAttribute("miwo-reference")] = el;
@@ -943,19 +1082,8 @@ Component = (function(_super) {
     if (!this.calledAfterRender) {
       throw new Error("In component " + this + " you forgot call super::afterRender()");
     }
+    this.callPlugins('afterRender', this);
     this.emit("rendered", this, this.getContentEl());
-  };
-
-  Component.prototype.replace = function(target) {
-    target = target || $(this.id);
-    if (target) {
-      this.render(target, 'replace');
-    }
-  };
-
-  Component.prototype.redraw = function() {
-    this.resetRendered();
-    this.render();
   };
 
   Component.prototype.beforeRender = function() {
@@ -1059,30 +1187,6 @@ Component = (function(_super) {
     return this.visible;
   };
 
-  Component.prototype.setSize = function(width, height) {
-    if (Type.isObject(width)) {
-      height = width.height;
-      width = width.width;
-    }
-    if (height !== void 0 && height !== null) {
-      this.height = height;
-      this.el.setStyle("height", height);
-    }
-    if (width !== void 0 && width !== null) {
-      this.width = width;
-      this.el.setStyle("width", width);
-    }
-    this.emit("resize", this);
-  };
-
-  Component.prototype.getSize = function() {
-    return;
-    return {
-      width: this.el.getWidth(),
-      height: this.el.getHeight()
-    };
-  };
-
   Component.prototype.setPosition = function(pos) {
     var dsize, size;
     dsize = document.getSize();
@@ -1161,12 +1265,28 @@ Component = (function(_super) {
     }
   };
 
-  Component.prototype.setActive = function(active, newActive) {
-    if (active) {
-      this.emit("activated", this);
-    } else {
-      this.emit("deactivated", this);
+  Component.prototype.setSize = function(width, height) {
+    if (Type.isObject(width)) {
+      height = width.height;
+      width = width.width;
     }
+    if (height !== void 0 && height !== null) {
+      this.height = height;
+      this.el.setStyle("height", height);
+    }
+    if (width !== void 0 && width !== null) {
+      this.width = width;
+      this.el.setStyle("width", width);
+    }
+    this.emit("resize", this);
+  };
+
+  Component.prototype.getSize = function() {
+    return;
+    return {
+      width: this.el.getWidth(),
+      height: this.el.getHeight()
+    };
   };
 
   Component.prototype.beforeDestroy = function() {
@@ -1181,12 +1301,17 @@ Component = (function(_super) {
   };
 
   Component.prototype.doDestroy = function() {
-    var _ref;
+    var name, plugin, _ref, _ref1;
     if (((_ref = this.template) != null ? _ref.destroy : void 0) != null) {
       this.template.destroy();
     }
     this.el.eliminate("component");
     this.el.destroy();
+    _ref1 = this.plugins;
+    for (name in _ref1) {
+      plugin = _ref1[name];
+      this.uninstallPlugin(name);
+    }
   };
 
   Component.prototype.afterDestroy = function() {
@@ -1214,12 +1339,15 @@ ComponentManager = (function(_super) {
 
   ComponentManager.prototype.names = null;
 
+  ComponentManager.prototype.roots = null;
+
   ComponentManager.prototype.id = 1;
 
   function ComponentManager() {
     ComponentManager.__super__.constructor.call(this);
     this.list = {};
     this.names = {};
+    this.roots = [];
     return;
   }
 
@@ -1236,29 +1364,51 @@ ComponentManager = (function(_super) {
     return group + this.names[group];
   };
 
-  ComponentManager.prototype.register = function(comp) {
-    if (comp.componentMgr) {
-      throw new Error("Component " + comp + " with id " + comp.id + " already exists.");
+  ComponentManager.prototype.register = function(cmp) {
+    if (cmp.componentMgr) {
+      throw new Error("Component " + comp + " with id " + cmp.id + " already exists.");
     }
-    comp.componentMgr = this;
-    this.list[comp.id] = comp;
-    this.emit("register", comp);
+    cmp.componentMgr = this;
+    this.list[cmp.id] = cmp;
+    this.roots.include(cmp);
+    cmp.on('attached', (function(_this) {
+      return function(cmp) {
+        _this.roots.erase(cmp);
+      };
+    })(this));
+    cmp.on('detached', (function(_this) {
+      return function(cmp) {
+        if (!cmp.destroying) {
+          _this.roots.include(cmp);
+        }
+      };
+    })(this));
+    cmp.on('idchange', (function(_this) {
+      return function(cmp, newId, oldId) {
+        delete _this.list[oldId];
+        _this.list[newId] = cmp;
+      };
+    })(this));
+    this.emit("register", cmp);
   };
 
-  ComponentManager.prototype.unregister = function(comp) {
-    if (this.list[comp.id]) {
-      delete this.list[comp.id];
-      delete comp.componentMgr;
-      this.emit("unregister", comp);
+  ComponentManager.prototype.unregister = function(cmp) {
+    if (this.roots.contains(cmp)) {
+      this.roots.erase(cmp);
+    }
+    if (this.list[cmp.id]) {
+      delete this.list[cmp.id];
+      delete cmp.componentMgr;
+      this.emit("unregister", cmp);
     }
   };
 
-  ComponentManager.prototype.beforeRender = function(component) {
-    this.emit("beforerender", component);
+  ComponentManager.prototype.beforeRender = function(cmp) {
+    this.emit("beforerender", cmp);
   };
 
-  ComponentManager.prototype.afterRender = function(component) {
-    this.emit("afterrender", component);
+  ComponentManager.prototype.afterRender = function(cmp) {
+    this.emit("afterrender", cmp);
   };
 
   ComponentManager.prototype.get = function(id) {
@@ -1278,8 +1428,63 @@ var ComponentSelector;
 ComponentSelector = (function() {
   function ComponentSelector() {}
 
-  ComponentSelector.prototype.selectParent = function(component, selector) {
-    component = this.getParent();
+  ComponentSelector.prototype.selectorMatch = /^([\#\.])?([^\[]*)(.*)$/;
+
+  ComponentSelector.prototype.attributesMatch = /\[([^\]]+)\]/g;
+
+  ComponentSelector.prototype.attributeMatch = /^\[([^=\]]+)(=([^\]]*))?\]$/;
+
+  ComponentSelector.prototype.is = function(component, selector) {
+    var attrMatches, match, matches, _i, _len, _ref;
+    if (selector === '*') {
+      return true;
+    }
+    if (!(matches = selector.match(this.selectorMatch))) {
+      return false;
+    }
+    if (matches[2]) {
+      if (matches[1] === '#') {
+        if (matches[2] !== component.id) {
+          return false;
+        }
+      } else if (matches[1] === '.') {
+        if (matches[2] !== component.name) {
+          return false;
+        }
+      } else {
+        if (!component.isXtype(matches[2])) {
+          return false;
+        }
+      }
+    }
+    if (matches[3]) {
+      _ref = matches[3].match(this.attributesMatch);
+      for (_i = 0, _len = _ref.length; _i < _len; _i++) {
+        match = _ref[_i];
+        if (!(attrMatches = match.match(this.attributeMatch))) {
+          return false;
+        }
+        if (attrMatches[3] === void 0) {
+          if (!component[attrMatches[1]]) {
+            return false;
+          }
+        } else {
+          if (attrMatches[3].match(/^\d+$/)) {
+            attrMatches[3] = parseInt(attrMatches[3], 10);
+          } else if (attrMatches[3].match(/^\d+\.\d+$/)) {
+            attrMatches[3] = parseFloat(attrMatches[3]);
+          }
+          if (component[attrMatches[1]] !== attrMatches[3]) {
+            return false;
+          }
+        }
+      }
+    }
+    return true;
+  };
+
+  ComponentSelector.prototype.queryParent = function(component, selector) {
+    component = component.getParent();
     while (component) {
       if (component.is(selector)) {
         break;
@@ -1289,28 +1494,85 @@ ComponentSelector = (function() {
     return component;
   };
 
-  ComponentSelector.prototype.is = function(component, selector) {
-    if (selector.test(/^\#([\w\-]+)/)) {
-      return selector.replace(/\#/, "") === component.id;
-    } else if (selector) {
-      return component.isXtype(selector);
+  ComponentSelector.prototype.query = function(selector, container) {
+    var component, components, nested, parts, scope, _i, _len;
+    if (selector === '>' || selector === '*') {
+      return container.child();
+    }
+    scope = container;
+    parts = selector.split(' ');
+    for (_i = 0, _len = parts.length; _i < _len; _i++) {
+      selector = parts[_i];
+      if (selector === '>') {
+        nested = true;
+        continue;
+      }
+      if (!scope.isContainer) {
+        return null;
+      }
+      components = scope.components.toArray();
+      scope = null;
+      while (component = components.shift()) {
+        if (component.is(selector)) {
+          scope = component;
+          break;
+        } else if (component.isContainer && !nested) {
+          components.append(component.components.toArray());
+        }
+      }
+      if (!scope) {
+        return null;
+      }
+      nested = false;
+    }
+    if (scope !== container) {
+      return scope;
     } else {
-      return false;
+      return null;
     }
   };
 
-  ComponentSelector.prototype.select = function(selector, component) {
-    if (component == null) {
-      component = null;
+  ComponentSelector.prototype.queryAll = function(selector, container) {
+    var component, components, matched, nested, nestedRoots, previousRoots, sel, selectors, _i, _j, _k, _l, _len, _len1, _len2, _len3, _ref;
+    previousRoots = [container];
+    components = container.components.toArray();
+    _ref = selector.split(' ');
+    for (_i = 0, _len = _ref.length; _i < _len; _i++) {
+      selector = _ref[_i];
+      if (selector === '>') {
+        nested = true;
+        continue;
+      }
+      if (components.length === 0) {
+        return [];
+      }
+      selectors = selector.split(',');
+      nestedRoots = [];
+      for (_j = 0, _len1 = components.length; _j < _len1; _j++) {
+        component = components[_j];
+        nestedRoots.push(component);
+      }
+      matched = [];
+      while (component = components.shift()) {
+        for (_k = 0, _len2 = selectors.length; _k < _len2; _k++) {
+          sel = selectors[_k];
+          if (component.is(sel) && previousRoots.indexOf(component) < 0) {
+            matched.push(component);
+          }
+        }
+        if (component.isContainer && (!nested || nestedRoots.indexOf(component) >= 0)) {
+          components.append(component.components.toArray());
+        }
+      }
+      components = matched;
+      previousRoots = [];
+      for (_l = 0, _len3 = components.length; _l < _len3; _l++) {
+        component = components[_l];
+        previousRoots.push(component);
+      }
+      nested = false;
     }
-    throw new Error("Not implemented");
-  };
-
-  ComponentSelector.prototype.selectAll = function(selector, component) {
-    if (component == null) {
-      component = null;
-    }
-    throw new Error("Not implemented");
+    return components;
   };
 
   return ComponentSelector;
@@ -1381,6 +1643,7 @@ Container = (function(_super) {
     } catch (_error) {
       error = _error;
       this.components.remove(name);
+      console.log(error, error.stack);
       throw error;
     }
     this.addedComponent(component);
@@ -1553,32 +1816,40 @@ Container = (function(_super) {
     return (index > 0 ? this.components.getAt(index - 1) : null);
   };
 
-  Container.prototype.select = function(selector) {
+  Container.prototype.find = function(selector) {
     if (selector == null) {
       selector = "*";
     }
-    return miwo.componentSelector.select(selector, this);
+    return miwo.componentSelector.query(selector, this);
   };
 
-  Container.prototype.selectAll = function(selector) {
+  Container.prototype.findAll = function(selector) {
     if (selector == null) {
       selector = "*";
     }
-    return miwo.componentSelector.selectAll(selector, this);
+    return miwo.componentSelector.queryAll(selector, this);
   };
 
   Container.prototype.child = function(selector) {
+    var matched;
     if (selector == null) {
       selector = "*";
     }
-    return this.select("> " + selector);
-  };
-
-  Container.prototype.down = function(selector) {
-    return this.select(selector);
+    matched = null;
+    this.components.each((function(_this) {
+      return function(component) {
+        if (!matched && component.is(selector)) {
+          matched = component;
+        }
+      };
+    })(this));
+    return matched;
   };
 
   Container.prototype.get = function(name, need) {
+    if (need == null) {
+      need = false;
+    }
     return this.getComponent(name, need);
   };
 
@@ -1645,7 +1916,7 @@ Container = (function(_super) {
   };
 
   Container.prototype.doRender = function() {
-    Container.__super__.doRender.call(this);
+    Container.__super__.doRender.apply(this, arguments);
     this.renderContainer();
     this.components.each((function(_this) {
       return function(component) {
@@ -1685,10 +1956,7 @@ Container = (function(_super) {
     for (_k = 0, _len2 = topComponentEls.length; _k < _len2; _k++) {
       el = topComponentEls[_k];
       component = this.get(el.getAttribute("miwo-component"), true);
-      el.removeAttribute('miwo-component');
-      component.setEl(el);
-      component.parentEl = this.getContentEl();
-      component.render();
+      component.replace(el);
     }
   };
 
@@ -1745,17 +2013,20 @@ ZIndexManager = (function(_super) {
 
   ZIndexManager.prototype.zIndex = 0;
 
-  ZIndexManager.prototype.list = {};
+  ZIndexManager.prototype.list = null;
 
-  ZIndexManager.prototype.stack = [];
+  ZIndexManager.prototype.stack = null;
 
   ZIndexManager.prototype.front = null;
 
   ZIndexManager.prototype.overlay = null;
 
   function ZIndexManager() {
-    ZIndexManager.__super__.constructor.call(this);
+    ZIndexManager.__super__.constructor.apply(this, arguments);
+    this.list = {};
+    this.stack = [];
     this.zIndex = this.zIndexBase;
+    return;
   }
 
   ZIndexManager.prototype.register = function(comp) {
@@ -1960,6 +2231,18 @@ Function.prototype.inject = function(name, service) {
   }
   this.prototype.injects[name] = service || name;
   return null;
+};
+
+Number.prototype.pad = function(length, char) {
+  var str;
+  if (char == null) {
+    char = '0';
+  }
+  str = '' + this;
+  while (str.length < length) {
+    str = char + str;
+  }
+  return str;
 };
 
 
@@ -2268,13 +2551,18 @@ Events = (function(_super) {
   };
 
   Events.prototype.mun = function(object, name, listener) {
-    this.removeManagedListeners(object, name, listener);
+    var l, n;
+    if (Type.isObject(name)) {
+      for (n in name) {
+        l = name[n];
+        this.removeManagedListeners(object, n, l);
+      }
+    } else {
+      this.removeManagedListeners(object, name, listener);
+    }
   };
 
   Events.prototype.munon = function(old, obj, name, listener) {
-    if (old === obj) {
-      return;
-    }
     if (old) {
       this.mun(old, name, listener);
     }
@@ -2389,12 +2677,19 @@ MiwoObject = (function(_super) {
     }
     for (k in config) {
       v = config[k];
-      this[k] = v;
+      this.setProperty(k, v);
     }
   };
 
+  MiwoObject.prototype.setProperty = function(name, value) {
+    if (value !== void 0) {
+      this[name] = value;
+    }
+    return this;
+  };
+
   MiwoObject.prototype.set = function(name, value) {
-    this[name] = value;
+    this.setProperty(name, value);
     return this;
   };
 
@@ -2403,18 +2698,12 @@ MiwoObject = (function(_super) {
       return;
     }
     this.destroying = true;
-    if (this.beforeDestroy) {
-      this.beforeDestroy();
-    }
+    this.beforeDestroy();
     this._callDestroy();
-    if (this.doDestroy) {
-      this.doDestroy();
-    }
+    this.doDestroy();
     this.destroying = false;
     this.isDestroyed = true;
-    if (this.afterDestroy) {
-      this.afterDestroy();
-    }
+    this.afterDestroy();
   };
 
   MiwoObject.prototype._callDestroy = function() {
@@ -2429,6 +2718,18 @@ MiwoObject = (function(_super) {
 
   MiwoObject.prototype.toString = function() {
     return this.constructor.name;
+  };
+
+  MiwoObject.prototype.beforeDestroy = function() {
+    this.beforeDestroyCalled = true;
+  };
+
+  MiwoObject.prototype.doDestroy = function() {
+    this.doDestroyCalled = true;
+  };
+
+  MiwoObject.prototype.afterDestroy = function() {
+    this.afterDestroyCalled = true;
   };
 
   return MiwoObject;
@@ -2774,9 +3075,13 @@ DiHelper = (function() {
           throw new Error("Cant call method " + op + " in service " + name + " of " + instance.constructor.name + ". Method is not defined");
         }
         if (!opCall) {
-          result.push(instance[op]);
+          result.push((function(_this) {
+            return function() {
+              return instance[op].call(instance);
+            };
+          })(this));
         } else if (!args) {
-          result.push(instance[op]());
+          result.push(instance[op].call(instance));
         } else {
           result.push(instance[op].apply(instance, this.evaluateArgs(opArgs, injector)));
         }
@@ -3035,6 +3340,9 @@ InjectorFactory = (function() {
         if (service.options) {
           definition.option(service.options);
         }
+        if (service.global) {
+          definition.setGlobal(name);
+        }
       }
     }
     _ref5 = this.extensions;
@@ -3110,6 +3418,9 @@ Service = (function() {
   };
 
   Service.prototype.setGlobal = function(name) {
+    if (name == null) {
+      name = null;
+    }
     this.injector.setGlobal(name || this.name, this.name);
     return this;
   };
@@ -3782,10 +4093,10 @@ Laoyut = (function(_super) {
     if (this.itemCls) {
       component.el.addClass(this.itemCls);
     }
-    if (component.width) {
+    if (component.width || component.width === null) {
       component.el.setStyle('width', component.width);
     }
-    if (component.height) {
+    if (component.height || component.height === null) {
       component.el.setStyle('height', component.height);
     }
   };
@@ -3888,6 +4199,9 @@ Translator = (function() {
     translated = this.getByLang(key, this.lang);
     if (translated === null) {
       translated = this.getByLang(key, this.defaultLang);
+    }
+    if (translated === null) {
+      translated = key;
     }
     return translated;
   };
@@ -4210,6 +4524,7 @@ Overlay = (function(_super) {
   };
 
   Overlay.prototype.open = function() {
+    this.opened = true;
     this.emit("open");
     this.target.addClass("miwo-overlayed");
     this.overlay.setStyle("display", "block");
@@ -4222,12 +4537,15 @@ Overlay = (function(_super) {
   };
 
   Overlay.prototype.close = function() {
+    this.opened = false;
     this.emit("close");
     this.target.removeClass("miwo-overlayed");
     this.overlay.setStyle("opacity", 0.0);
     ((function(_this) {
       return function() {
-        return _this.overlay.setStyle("display", "none");
+        if (!_this.opened) {
+          return _this.overlay.setStyle("display", "none");
+        }
       };
     })(this)).delay(300);
     this.emit("hide");
@@ -4235,7 +4553,7 @@ Overlay = (function(_super) {
 
   Overlay.prototype.doDestroy = function() {
     this.overlay.destroy();
-    Overlay.__super__.doDestroy.call(this);
+    return Overlay.__super__.doDestroy.apply(this, arguments);
   };
 
   return Overlay;

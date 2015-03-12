@@ -11,8 +11,7 @@
 		"css/miwo.min.css",
 		"js/miwo.js",
 		"js/miwo.min.js",
-		"less/miwo.less",
-		"less/mixins.less"
+		"less/*.less"
 	],
 	"ignore": [
 	],
