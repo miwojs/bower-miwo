@@ -302,7 +302,7 @@ function isUndefined(arg) {
 }
 
 },{}],2:[function(require,module,exports){
-var ComponentManager, ComponentSelector, CookieManager, InjectorExtension, MiwoExtension, RequestManager, Translator, ZIndexManager,
+var ComponentManager, ComponentSelector, CookieManager, InjectorExtension, MiwoExtension, RequestManager, StateManager, StatePersister, Translator, ZIndexManager,
   __hasProp = {}.hasOwnProperty,
   __extends = function(child, parent) { for (var key in parent) { if (__hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; };
 
@@ -317,6 +317,10 @@ ComponentManager = require('./component/ComponentManager');
 ComponentSelector = require('./component/ComponentSelector');
 
 ZIndexManager = require('./component/ZIndexManager');
+
+StateManager = require('./component/StateManager');
+
+StatePersister = require('./component/StatePersister');
 
 Translator = require('./locale/Translator');
 
@@ -383,6 +387,8 @@ MiwoExtension = (function(_super) {
       };
     })(this));
     injector.define('componentMgr', ComponentManager);
+    injector.define('componentStateMgr', StateManager);
+    injector.define('componentStatePersister', StatePersister);
     injector.define('componentSelector', ComponentSelector);
     injector.define('zIndexMgr', ZIndexManager);
   };
@@ -394,7 +400,7 @@ MiwoExtension = (function(_super) {
 module.exports = MiwoExtension;
 
 
-},{"./component/ComponentManager":6,"./component/ComponentSelector":7,"./component/ZIndexManager":9,"./di/InjectorExtension":19,"./http/CookieManager":23,"./http/RequestManager":26,"./http/plugins":28,"./locale/Translator":36}],3:[function(require,module,exports){
+},{"./component/ComponentManager":6,"./component/ComponentSelector":7,"./component/StateManager":9,"./component/StatePersister":10,"./component/ZIndexManager":11,"./di/InjectorExtension":21,"./http/CookieManager":25,"./http/RequestManager":28,"./http/plugins":30,"./locale/Translator":38}],3:[function(require,module,exports){
 var Configurator, InjectorFactory;
 
 InjectorFactory = require('../di/InjectorFactory');
@@ -431,7 +437,7 @@ Configurator = (function() {
 module.exports = Configurator;
 
 
-},{"../di/InjectorFactory":20}],4:[function(require,module,exports){
+},{"../di/InjectorFactory":22}],4:[function(require,module,exports){
 var Configurator, Miwo, Translator;
 
 Configurator = require('./Configurator');
@@ -467,6 +473,8 @@ Miwo = (function() {
   Miwo.prototype.entityMgr = Miwo.service('entityMgr');
 
   Miwo.prototype.componentMgr = Miwo.service('componentMgr');
+
+  Miwo.prototype.componentStateMgr = Miwo.service('componentStateMgr');
 
   Miwo.prototype.componentSelector = Miwo.service('componentSelector');
 
@@ -616,7 +624,7 @@ Miwo = (function() {
 module.exports = new Miwo;
 
 
-},{"../locale/Translator":36,"./Configurator":3}],5:[function(require,module,exports){
+},{"../locale/Translator":38,"./Configurator":3}],5:[function(require,module,exports){
 var Component, MiwoObject,
   __hasProp = {}.hasOwnProperty,
   __extends = function(child, parent) { for (var key in parent) { if (__hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
@@ -701,6 +709,10 @@ Component = (function(_super) {
 
   Component.prototype.plugins = null;
 
+  Component.prototype.stateManage = false;
+
+  Component.prototype.stateName = null;
+
   Component.prototype._isGeneratedId = false;
 
   Component.prototype.zIndexMgr = null;
@@ -735,6 +747,7 @@ Component = (function(_super) {
   };
 
   Component.prototype.doInit = function() {
+    var stateName;
     this.calledDoInit = true;
     if (!this.name) {
       this.name = miwo.componentMgr.uniqueName(this.xtype);
@@ -749,7 +762,16 @@ Component = (function(_super) {
       this.contentEl.inject(this.el);
       this.contentEl.addClass("miwo-ct");
     }
-    this.focusEl = this.el;
+    if (this.focusEl === true) {
+      this.focusEl = this.el;
+    }
+    if (this.stateManage) {
+      stateName = this.stateName || this.id;
+      if (!stateName) {
+        throw new Error("Component id or stateName must be defined if you want use component states");
+      }
+      this.state = miwo.componentStateMgr.loadState(stateName);
+    }
   };
 
   Component.prototype.afterInit = function() {
@@ -860,7 +882,9 @@ Component = (function(_super) {
   Component.prototype.setDisabled = function(disabled) {
     this.disabled = disabled;
     this.emit("disabled", this, disabled);
-    this.getFocusEl().set('tabindex', -disabled);
+    if (this.isFocusable()) {
+      this.getFocusEl().set('tabindex', -disabled);
+    }
   };
 
   Component.prototype.setFocus = function(silent) {
@@ -868,7 +892,9 @@ Component = (function(_super) {
       return;
     }
     this.focus = true;
-    this.getFocusEl().setFocus();
+    if (this.isFocusable()) {
+      this.getFocusEl().setFocus();
+    }
     if (!silent) {
       this.emit('focus', this);
     }
@@ -879,7 +905,9 @@ Component = (function(_super) {
       return;
     }
     this.focus = false;
-    this.getFocusEl().blur();
+    if (this.isFocusable()) {
+      this.getFocusEl().blur();
+    }
     if (!silent) {
       this.emit('blur', this);
     }
@@ -1009,7 +1037,9 @@ Component = (function(_super) {
     return template;
   };
 
-  Component.prototype.update = function() {};
+  Component.prototype.update = function() {
+    return this;
+  };
 
   Component.prototype.resetRendered = function(dispose) {
     this.rendered = false;
@@ -1018,6 +1048,7 @@ Component = (function(_super) {
       this.el.empty();
       this.el.dispose();
     }
+    return this;
   };
 
   Component.prototype.render = function(el, position) {
@@ -1046,6 +1077,7 @@ Component = (function(_super) {
       this.contentEl = contentEl;
     }
     this.drawComponent();
+    return this;
   };
 
   Component.prototype.replace = function(target) {
@@ -1053,15 +1085,20 @@ Component = (function(_super) {
     if (target) {
       this.render(target, 'replace');
     }
+    return this;
   };
 
   Component.prototype.redraw = function() {
+    if (!this.rendered) {
+      return;
+    }
     if (this.contentEl) {
       this.contentEl.empty();
     } else {
       this.el.empty();
     }
     this.drawComponent();
+    return this;
   };
 
   Component.prototype.drawComponent = function() {
@@ -1083,6 +1120,7 @@ Component = (function(_super) {
       throw new Error("In component " + this + " you forgot call super::afterRender()");
     }
     this.callPlugins('afterRender', this);
+    this.wasRendered = true;
     this.emit("rendered", this, this.getContentEl());
   };
 
@@ -1199,11 +1237,13 @@ Component = (function(_super) {
   };
 
   Component.prototype.show = function() {
+    if (!this.rendered) {
+      this.render();
+    }
     if (this.visible) {
       return;
     }
     this.emit("show", this);
-    this.render();
     this.doShow();
     this.parentShown(this);
     this.emit("shown", this);
@@ -1325,7 +1365,7 @@ Component = (function(_super) {
 module.exports = Component;
 
 
-},{"../core/Object":14}],6:[function(require,module,exports){
+},{"../core/Object":16}],6:[function(require,module,exports){
 var ComponentManager, MiwoObject,
   __hasProp = {}.hasOwnProperty,
   __extends = function(child, parent) { for (var key in parent) { if (__hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; };
@@ -1422,7 +1462,7 @@ ComponentManager = (function(_super) {
 module.exports = ComponentManager;
 
 
-},{"../core/Object":14}],7:[function(require,module,exports){
+},{"../core/Object":16}],7:[function(require,module,exports){
 var ComponentSelector;
 
 ComponentSelector = (function() {
@@ -1677,6 +1717,15 @@ Container = (function(_super) {
     this.emit("removed", this, component);
   };
 
+  Container.prototype.removeComponents = function() {
+    this.components.each((function(_this) {
+      return function(component, name) {
+        _this.removeComponent(name);
+        component.destroy();
+      };
+    })(this));
+  };
+
   Container.prototype.removedComponent = function(component) {};
 
   Container.prototype.removedComponentDeep = function(component) {
@@ -1742,8 +1791,12 @@ Container = (function(_super) {
     return this.components.length > 0;
   };
 
-  Container.prototype.getComponents = function() {
-    return this.components;
+  Container.prototype.getComponents = function(asArray) {
+    if (asArray) {
+      return this.components.toArray();
+    } else {
+      return this.components;
+    }
   };
 
   Container.prototype.findComponents = function(deep, filters, components) {
@@ -1973,17 +2026,8 @@ Container = (function(_super) {
     });
   };
 
-  Container.prototype.removeAllComponents = function() {
-    this.components.each((function(_this) {
-      return function(component, name) {
-        _this.removeComponent(name);
-        component.destroy();
-      };
-    })(this));
-  };
-
   Container.prototype.doDestroy = function() {
-    this.removeAllComponents();
+    this.removeComponents();
     if (this.hasLayout()) {
       this.setLayout(null);
     }
@@ -1997,7 +2041,107 @@ Container = (function(_super) {
 module.exports = Container;
 
 
-},{"../layout":35,"../utils/Collection":38,"./Component":5}],9:[function(require,module,exports){
+},{"../layout":37,"../utils/Collection":40,"./Component":5}],9:[function(require,module,exports){
+var MiwoObject, State, StateManager,
+  __hasProp = {}.hasOwnProperty,
+  __extends = function(child, parent) { for (var key in parent) { if (__hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; };
+
+MiwoObject = require('../core/Object');
+
+StateManager = (function(_super) {
+  __extends(StateManager, _super);
+
+  function StateManager() {
+    return StateManager.__super__.constructor.apply(this, arguments);
+  }
+
+  StateManager.prototype.statePersister = StateManager.inject('statePersister', 'componentStatePersister');
+
+  StateManager.prototype.loadState = function(stateName) {
+    var values;
+    values = this.statePersister.load(stateName);
+    return new State(this, stateName, values || {});
+  };
+
+  StateManager.prototype.saveState = function(state) {
+    this.statePersister.save(state.name, state.values);
+  };
+
+  return StateManager;
+
+})(MiwoObject);
+
+State = (function() {
+  function State(mgr, name, data) {
+    this.mgr = mgr;
+    this.name = name;
+    this.data = data;
+    return;
+  }
+
+  State.prototype.get = function(name, def) {
+    if (this.data.hasOwnProperty(name)) {
+      return this.data[name];
+    } else {
+      return def;
+    }
+  };
+
+  State.prototype.set = function(name, value) {
+    if (value !== void 0) {
+      this.data[name] = value;
+    } else {
+      delete this.data[name];
+    }
+    return this;
+  };
+
+  State.prototype.save = function() {
+    this.mgr.saveState(this);
+    return this;
+  };
+
+  return State;
+
+})();
+
+module.exports = StateManager;
+
+
+},{"../core/Object":16}],10:[function(require,module,exports){
+var MiwoObject, StatePersister,
+  __hasProp = {}.hasOwnProperty,
+  __extends = function(child, parent) { for (var key in parent) { if (__hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; };
+
+MiwoObject = require('../core/Object');
+
+StatePersister = (function(_super) {
+  __extends(StatePersister, _super);
+
+  StatePersister.prototype.state = null;
+
+  function StatePersister() {
+    StatePersister.__super__.constructor.apply(this, arguments);
+    this.state = {};
+    return;
+  }
+
+  StatePersister.prototype.load = function(name) {
+    return this.state[name];
+  };
+
+  StatePersister.prototype.save = function(name, data) {
+    this.state[name] = data;
+  };
+
+  return StatePersister;
+
+})(MiwoObject);
+
+module.exports = StatePersister;
+
+
+},{"../core/Object":16}],11:[function(require,module,exports){
 var MiwoObject, Overlay, ZIndexManager,
   __hasProp = {}.hasOwnProperty,
   __extends = function(child, parent) { for (var key in parent) { if (__hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; };
@@ -2196,14 +2340,14 @@ ZIndexManager = (function(_super) {
 module.exports = ZIndexManager;
 
 
-},{"../core/Object":14,"../utils/Overlay":40}],10:[function(require,module,exports){
+},{"../core/Object":16,"../utils/Overlay":42}],12:[function(require,module,exports){
 module.exports = {
   Component: require('./Component'),
   Container: require('./Container')
 };
 
 
-},{"./Component":5,"./Container":8}],11:[function(require,module,exports){
+},{"./Component":5,"./Container":8}],13:[function(require,module,exports){
 Function.prototype.getter = function(prop, getter) {
   Object.defineProperty(this.prototype, prop, {
     get: getter,
@@ -2246,7 +2390,7 @@ Number.prototype.pad = function(length, char) {
 };
 
 
-},{}],12:[function(require,module,exports){
+},{}],14:[function(require,module,exports){
 var EventShortcuts;
 
 Element.Properties.cls = {
@@ -2419,7 +2563,7 @@ Events.implement(EventShortcuts);
 Element.implement(EventShortcuts);
 
 
-},{}],13:[function(require,module,exports){
+},{}],15:[function(require,module,exports){
 var Events, NativeEvents,
   __hasProp = {}.hasOwnProperty,
   __extends = function(child, parent) { for (var key in parent) { if (__hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
@@ -2648,7 +2792,7 @@ Events = (function(_super) {
 module.exports = Events;
 
 
-},{"events":1}],14:[function(require,module,exports){
+},{"events":1}],16:[function(require,module,exports){
 var Events, MiwoObject,
   __hasProp = {}.hasOwnProperty,
   __extends = function(child, parent) { for (var key in parent) { if (__hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; };
@@ -2743,7 +2887,7 @@ MiwoObject.addMethod = function(name, method) {
 module.exports = MiwoObject;
 
 
-},{"./Events":13}],15:[function(require,module,exports){
+},{"./Events":15}],17:[function(require,module,exports){
 var __slice = [].slice;
 
 Type.extend({
@@ -2971,14 +3115,14 @@ source: http://github.com/eneko/Array.sortBy
 })();
 
 
-},{}],16:[function(require,module,exports){
+},{}],18:[function(require,module,exports){
 module.exports = {
   Events: require('./Events'),
   Object: require('./Object')
 };
 
 
-},{"./Events":13,"./Object":14}],17:[function(require,module,exports){
+},{"./Events":15,"./Object":16}],19:[function(require,module,exports){
 var DiHelper;
 
 DiHelper = (function() {
@@ -3110,7 +3254,7 @@ DiHelper = (function() {
 module.exports = new DiHelper;
 
 
-},{}],18:[function(require,module,exports){
+},{}],20:[function(require,module,exports){
 var DiHelper, Injector, Service;
 
 Service = require('./Service');
@@ -3237,7 +3381,7 @@ Injector = (function() {
 module.exports = Injector;
 
 
-},{"./DiHelper":17,"./Service":21}],19:[function(require,module,exports){
+},{"./DiHelper":19,"./Service":23}],21:[function(require,module,exports){
 var DiHelper, InjectorExtension;
 
 DiHelper = require('./DiHelper');
@@ -3264,7 +3408,7 @@ InjectorExtension = (function() {
 module.exports = InjectorExtension;
 
 
-},{"./DiHelper":17}],20:[function(require,module,exports){
+},{"./DiHelper":19}],22:[function(require,module,exports){
 var DiHelper, Injector, InjectorFactory;
 
 Injector = require('./Injector');
@@ -3362,7 +3506,7 @@ InjectorFactory = (function() {
 module.exports = InjectorFactory;
 
 
-},{"./DiHelper":17,"./Injector":18}],21:[function(require,module,exports){
+},{"./DiHelper":19,"./Injector":20}],23:[function(require,module,exports){
 var DiHelper, Service;
 
 DiHelper = require('./DiHelper');
@@ -3472,7 +3616,7 @@ Service = (function() {
 module.exports = Service;
 
 
-},{"./DiHelper":17}],22:[function(require,module,exports){
+},{"./DiHelper":19}],24:[function(require,module,exports){
 module.exports = {
   Injector: require('./Injector'),
   InjectorFactory: require('./InjectorFactory'),
@@ -3480,7 +3624,7 @@ module.exports = {
 };
 
 
-},{"./Injector":18,"./InjectorExtension":19,"./InjectorFactory":20}],23:[function(require,module,exports){
+},{"./Injector":20,"./InjectorExtension":21,"./InjectorFactory":22}],25:[function(require,module,exports){
 var CookieManager, CookieSection;
 
 CookieSection = require('./CookieSection');
@@ -3533,7 +3677,7 @@ CookieManager = (function() {
 module.exports = CookieManager;
 
 
-},{"./CookieSection":24}],24:[function(require,module,exports){
+},{"./CookieSection":26}],26:[function(require,module,exports){
 var CookieSection;
 
 CookieSection = (function() {
@@ -3596,7 +3740,7 @@ CookieSection = (function() {
 module.exports = CookieSection;
 
 
-},{}],25:[function(require,module,exports){
+},{}],27:[function(require,module,exports){
 var HttpRequest,
   __hasProp = {}.hasOwnProperty,
   __extends = function(child, parent) { for (var key in parent) { if (__hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; };
@@ -3669,7 +3813,7 @@ HttpRequest = (function(_super) {
 module.exports = HttpRequest;
 
 
-},{}],26:[function(require,module,exports){
+},{}],28:[function(require,module,exports){
 var HttpRequest, MiwoObject, RequestManager,
   __hasProp = {}.hasOwnProperty,
   __extends = function(child, parent) { for (var key in parent) { if (__hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; };
@@ -3764,14 +3908,14 @@ RequestManager = (function(_super) {
 module.exports = RequestManager;
 
 
-},{"../core/Object":14,"./HttpRequest":25}],27:[function(require,module,exports){
+},{"../core/Object":16,"./HttpRequest":27}],29:[function(require,module,exports){
 module.exports = {
   HttpRequest: require('./HttpRequest'),
   RequestManager: require('./RequestManager')
 };
 
 
-},{"./HttpRequest":25,"./RequestManager":26}],28:[function(require,module,exports){
+},{"./HttpRequest":27,"./RequestManager":28}],30:[function(require,module,exports){
 var ErrorPlugin, FailurePlugin, RedirectPlugin;
 
 RedirectPlugin = (function() {
@@ -3822,7 +3966,7 @@ module.exports = {
 };
 
 
-},{}],29:[function(require,module,exports){
+},{}],31:[function(require,module,exports){
 (function (global){
 var Miwo, miwo;
 
@@ -3864,7 +4008,7 @@ Miwo.utils = require('./utils');
 
 
 }).call(this,typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"./DiExtension":2,"./bootstrap/Miwo":4,"./component":10,"./core":16,"./core/Common":11,"./core/Element":12,"./core/Types":15,"./di":22,"./http":27,"./locale":37,"./utils":41}],30:[function(require,module,exports){
+},{"./DiExtension":2,"./bootstrap/Miwo":4,"./component":12,"./core":18,"./core/Common":13,"./core/Element":14,"./core/Types":17,"./di":24,"./http":29,"./locale":39,"./utils":43}],32:[function(require,module,exports){
 var AbsoluteLayout, Layout,
   __hasProp = {}.hasOwnProperty,
   __extends = function(child, parent) { for (var key in parent) { if (__hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; };
@@ -3879,6 +4023,7 @@ AbsoluteLayout = (function(_super) {
     this.type = 'absolute';
     this.targetCls = 'miwo-layout-absolute';
     this.itemCls = 'miwo-layout-item';
+    return;
   }
 
   AbsoluteLayout.prototype.configureComponent = function(component) {
@@ -3908,7 +4053,7 @@ AbsoluteLayout = (function(_super) {
 module.exports = AbsoluteLayout;
 
 
-},{"./Layout":34}],31:[function(require,module,exports){
+},{"./Layout":36}],33:[function(require,module,exports){
 var AutoLayout, Layout,
   __hasProp = {}.hasOwnProperty,
   __extends = function(child, parent) { for (var key in parent) { if (__hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; };
@@ -3932,7 +4077,7 @@ AutoLayout = (function(_super) {
 module.exports = AutoLayout;
 
 
-},{"./Layout":34}],32:[function(require,module,exports){
+},{"./Layout":36}],34:[function(require,module,exports){
 var FitLayout, Layout,
   __hasProp = {}.hasOwnProperty,
   __extends = function(child, parent) { for (var key in parent) { if (__hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; };
@@ -3956,7 +4101,7 @@ FitLayout = (function(_super) {
 module.exports = FitLayout;
 
 
-},{"./Layout":34}],33:[function(require,module,exports){
+},{"./Layout":36}],35:[function(require,module,exports){
 var FormLayout, Layout,
   __hasProp = {}.hasOwnProperty,
   __extends = function(child, parent) { for (var key in parent) { if (__hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; };
@@ -3980,7 +4125,7 @@ FormLayout = (function(_super) {
 module.exports = FormLayout;
 
 
-},{"./Layout":34}],34:[function(require,module,exports){
+},{"./Layout":36}],36:[function(require,module,exports){
 var Laoyut, MiwoObject,
   __hasProp = {}.hasOwnProperty,
   __extends = function(child, parent) { for (var key in parent) { if (__hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; };
@@ -4143,7 +4288,7 @@ Laoyut = (function(_super) {
 module.exports = Laoyut;
 
 
-},{"../core/Object":14}],35:[function(require,module,exports){
+},{"../core/Object":16}],37:[function(require,module,exports){
 module.exports = {
   Absolute: require('./Absolute'),
   Form: require('./Form'),
@@ -4156,7 +4301,7 @@ module.exports = {
 };
 
 
-},{"./Absolute":30,"./Auto":31,"./Fit":32,"./Form":33,"./Layout":34}],36:[function(require,module,exports){
+},{"./Absolute":32,"./Auto":33,"./Fit":34,"./Form":35,"./Layout":36}],38:[function(require,module,exports){
 var Translator;
 
 Translator = (function() {
@@ -4201,7 +4346,7 @@ Translator = (function() {
       translated = this.getByLang(key, this.defaultLang);
     }
     if (translated === null) {
-      translated = key;
+      translated = '';
     }
     return translated;
   };
@@ -4233,13 +4378,13 @@ Translator = (function() {
 module.exports = Translator;
 
 
-},{}],37:[function(require,module,exports){
+},{}],39:[function(require,module,exports){
 module.exports = {
   Translator: require('./Translator')
 };
 
 
-},{"./Translator":36}],38:[function(require,module,exports){
+},{"./Translator":38}],40:[function(require,module,exports){
 var Collection;
 
 Collection = (function() {
@@ -4413,7 +4558,7 @@ Collection = (function() {
 module.exports = Collection;
 
 
-},{}],39:[function(require,module,exports){
+},{}],41:[function(require,module,exports){
 var KeyListener;
 
 KeyListener = (function() {
@@ -4479,7 +4624,7 @@ KeyListener = (function() {
 module.exports = KeyListener;
 
 
-},{}],40:[function(require,module,exports){
+},{}],42:[function(require,module,exports){
 var MiwoObject, Overlay,
   __hasProp = {}.hasOwnProperty,
   __extends = function(child, parent) { for (var key in parent) { if (__hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; };
@@ -4563,7 +4708,7 @@ Overlay = (function(_super) {
 module.exports = Overlay;
 
 
-},{"../core/Object":14}],41:[function(require,module,exports){
+},{"../core/Object":16}],43:[function(require,module,exports){
 module.exports = {
   Overlay: require('./Overlay'),
   Collection: require('./Collection'),
@@ -4571,4 +4716,4 @@ module.exports = {
 };
 
 
-},{"./Collection":38,"./KeyListener":39,"./Overlay":40}]},{},[29])
+},{"./Collection":40,"./KeyListener":41,"./Overlay":42}]},{},[31])
