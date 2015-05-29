@@ -42,7 +42,7 @@ html {
   right: 0;
   bottom: 0;
   opacity: 0;
-  display: "none";
+  display: none;
   -webkit-transition: all 0.3s;
   -moz-transition: all 0.3s;
   -ms-transition: all 0.3s;

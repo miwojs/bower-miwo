@@ -5,4 +5,4 @@ body,html{margin:0;padding:0}
 .miwo-layout-absolute>.miwo-layout-item{position:absolute;overflow:hidden}
 .miwo-layout-absolute>.miwo-layout-item>.miwo-ct{overflow:auto}
 .miwo-overlayed{overflow-x:hidden;overflow-y:auto}
-.miwo-overlay{position:absolute;left:0;top:0;right:0;bottom:0;opacity:0;display:"none";-webkit-transition:all .3s;-moz-transition:all .3s;-ms-transition:all .3s;-o-transition:all .3s}
+.miwo-overlay{position:absolute;left:0;top:0;right:0;bottom:0;opacity:0;display:none;-webkit-transition:all .3s;-moz-transition:all .3s;-ms-transition:all .3s;-o-transition:all .3s}
